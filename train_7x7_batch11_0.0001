@@ -1,0 +1,573 @@
+# -*- coding: utf8 -*-
+import tensorflow as tf
+import numpy as np
+import time
+
+
+class improcess():
+    def __init__(self):
+        self.file1 = '/home/zb/zzz/tuu/2015_all_fang.tif'
+        self.file2 = '/home/zb/tmp/sp_new/sp_tiff/'
+        self.file3 = '/home/zb/tmp/1/quickbird2015.tif'
+        self.file4 = '/home/zb/tmp/sp_new/labeltiff/'
+
+    def write_tiff(self, file_outpath, input_arr, out_width, out_height, out_band):
+        driver = gdal.GetDriverByName("GTiff")
+        dst_ds = driver.Create(file_outpath, out_width, out_height, out_band, gdal.GDT_UInt16)
+        if out_band == 1:
+            dst_ds.GetRasterBand(1).WriteArray(input_arr)
+        elif out_band > 1:
+            for i in range(out_band):
+                dst_ds.GetRasterBand(i + 1).WriteArray(input_arr[i])
+
+    def split_img_mul(self):
+        im = gdal.Open(self.file3)
+
+        nums = 0
+
+        for i in range(21):
+            for j in range(64):
+                tmp_arr = im.ReadAsArray(xoff=j * 224, yoff=i * 224, xsize=224, ysize=224)
+                filename = '/home/zb/tmp/sp_new/abc/sptiff/' + str(nums) + '.tif'
+
+                self.write_tiff(filename, tmp_arr, 224, 224, 4)
+                nums += 1
+
+    def split_img_single(self):
+        im = gdal.Open(self.file1)
+
+        nums = 0
+
+        for i in range(21):
+            for j in range(64):
+                tmp_arr = im.ReadAsArray(xoff=j * 224, yoff=i * 224, xsize=224, ysize=224)
+                filename = '/home/zb/tmp/sp_new/abc/labeltiff/' + str(nums) + '.tif'
+
+                self.write_tiff(filename, tmp_arr, 224, 224, 1)
+                nums += 1
+
+    def _int64_feature(self, value):
+        return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+    def _bytes_feature(self, value):
+        return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+    def _float_feature(value):
+        return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
+    def write_to_tffile(self):
+        imag_file = '/home/zb/tmp/sp_new/abc/sptiff/'
+        label_file = '/home/zb/tmp/sp_new/abc/labeltiff/'
+        filename = '/home/zb/tmp/sp_new/abc/15.tfrecords'
+
+        writer = tf.python_io.TFRecordWriter(filename)
+        for i in range(1344):
+            img = gdal.Open(imag_file + str(i) + '.tif')
+            label = gdal.Open(label_file + str(i) + '.tif')
+            img_arr = img.ReadAsArray()
+            lable_arr = label.ReadAsArray()
+            img_arr = np.array(img_arr, dtype='float32')
+            img_arr = np.transpose(img_arr, [1, 2, 0])  # change [channels, height, width] to [height, width, channels]
+            lable_arr = np.array(lable_arr, dtype='int32')
+            img_raw = img_arr.tostring()
+            lable_raw = lable_arr.tostring()
+
+            example = tf.train.Example(features=tf.train.Features(feature={
+                'image_raw': self._bytes_feature(img_raw),
+                'label': self._bytes_feature(lable_raw)
+            }))
+
+            writer.write(example.SerializeToString())
+        writer.close()
+
+    '''
+    def readfile(self, filename):
+        reader = tf.TFRecordReader()
+        filename_queue = tf.train.string_input_producer([filename])
+        _, serialized_example = reader.read(filename_queue)
+
+        features = tf.parse_single_example(serialized_example,
+                                           features={
+                                               'normalized_image': tf.FixedLenFeature([], tf.string),
+                                               'label': tf.FixedLenFeature([], tf.int64),
+                                               # 'pixels': tf.FixedLenFeature([], tf.int64)
+                                           })
+        images = tf.decode_raw(features['normalized_image'], tf.float32)
+        labels = tf.cast(features['label'], tf.int32)
+        # pixels = tf.cast(features['pixels'], tf.int32)
+
+        with tf.Session() as sess:
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+            s = 0
+
+            for i in range(1000000):
+                image, label = sess.run([images, labels])
+                # s += label
+                if label == 1:
+                    print image, label
+
+            coord.request_stop()
+            coord.join(threads)
+    '''
+
+    def read_up_to_file(self, filename, bacth_size):
+        reader = tf.TFRecordReader()
+        filename_queue = tf.train.string_input_producer([filename])
+        _, queue_batch = reader.read_up_to(filename_queue, bacth_size)
+        features = tf.parse_example(queue_batch, features={
+            'image_raw': tf.FixedLenFeature([], tf.string),
+            'label': tf.FixedLenFeature([], tf.string),
+        })
+
+        imgs = tf.decode_raw(features['image_raw'], tf.float32)
+        labels = tf.decode_raw(features['label'], tf.int32)
+
+        images_bacth = tf.reshape(imgs, (bacth_size, 224, 224, 8))
+        labels_batch = tf.reshape(labels, (bacth_size, 224, 224))
+
+        return images_bacth, labels_batch
+
+    def read_bacth_multifile(self, filein_path, bacth_size):
+        reader = tf.TFRecordReader()
+        files = tf.train.match_filenames_once(filein_path)
+
+        filename_queue = tf.train.string_input_producer(files)
+        _, queue_batch = reader.read_up_to(filename_queue, bacth_size)
+        features = tf.parse_example(queue_batch, features={
+            'image_raw': tf.FixedLenFeature([], tf.string),
+        })
+
+        imgs = tf.decode_raw(features['image_raw'], tf.float32)
+
+        images_bacth = tf.reshape(imgs, (bacth_size, 224, 224, 8))
+
+        return files, images_bacth
+
+
+class SegNet():
+    def __init__(self, num_epochs, batch_size, learning_rate, learning_rate_decay, moving_average_decay, tf_file_path,
+                 model_path, predict_path):
+        self.num_epochs = num_epochs
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.learning_rate_decay = learning_rate_decay
+        self.moving_average_decay = moving_average_decay
+        self.tf_file_path = tf_file_path
+        self.model_path = model_path
+        self.predict_path = predict_path
+
+    # batch normalization
+    def batch_normalization(self, input, isTraining, name):
+        return tf.cond(isTraining,
+                       lambda: tf.contrib.layers.batch_norm(input, is_training=isTraining, scope=name + '_bn'),
+                       lambda: tf.contrib.layers.batch_norm(input, is_training=isTraining, scope=name + '_bn',
+                                                            reuse=True))  # reuse=True
+
+    def conv_op(self, input, kernel_shape, stride, isTraining, activation=True, name=None):
+        depth = kernel_shape[3]
+        with tf.variable_scope('conv' + name) as scope:
+            '''
+            kernel = tf.get_variable('conv-kernel', shape=kernel_shape,
+                                      initializer=tf.contrib.layers.xavier_initializer_conv2d())     # attention
+            '''
+            kernel = tf.get_variable('conv-kernel', shape=kernel_shape,
+                                     initializer=tf.truncated_normal_initializer(stddev=0.1))  # attention
+
+            biases = tf.get_variable('conv-biases', shape=[depth],
+                                     initializer=tf.constant_initializer(0.0))
+            conv = tf.nn.conv2d(input, kernel, strides=[1, stride, stride, 1], padding='SAME', name=scope.name)
+            layer = tf.nn.bias_add(conv, biases)
+
+        if activation is True:
+            relu_val = tf.nn.relu(self.batch_normalization(layer, isTraining, scope.name))
+        else:
+            relu_val = self.batch_normalization(layer, isTraining, scope.name)
+        return relu_val
+
+    def deconv_op(self, input, kernel_shape, out_shape, stride, isTraining, activation=True, name=None):
+        # attention kernel_shape's [2] [3] is changed, cause it's deconvolution
+        depth = kernel_shape[2]
+        with tf.variable_scope('deconv' + name) as scope:
+            kernel = tf.get_variable('deconv-kernel', shape=kernel_shape,
+                                     initializer=tf.truncated_normal_initializer(stddev=0.1))  # attention
+            biases = tf.get_variable('deconv-biases', shape=[depth],
+                                     initializer=tf.constant_initializer(0.0))
+
+            deconv = tf.nn.conv2d_transpose(input, kernel, out_shape, strides=[1, stride, stride, 1], padding='SAME',
+                                            name=scope.name)
+            layer = tf.nn.bias_add(deconv, biases)
+        if activation is True:
+            relu_val = tf.nn.relu(self.batch_normalization(layer, isTraining, scope.name))
+        else:
+            relu_val = self.batch_normalization(layer, isTraining, scope.name)
+        return relu_val
+
+    def max_pool_with_argmax_op(self, input, stride, name):
+        # tf.nn.max_pool_with_argmax, only GPU-supported, tf.nn.max_pool_with_argmax_and_mask seem to high version support
+        return tf.nn.max_pool_with_argmax(input, ksize=[1, 2, 2, 1], strides=[1, stride, stride, 1], padding='SAME',
+                                          name=name)
+
+    def unpool(self, net, mask, stride, name):
+        assert mask is not None
+        with tf.name_scope(name):
+            ksize = [1, stride, stride, 1]
+            input_shape = net.get_shape().as_list()
+            #  calculation new shape
+            output_shape = (input_shape[0], input_shape[1] * ksize[1], input_shape[2] * ksize[2], input_shape[3])
+            # calculation indices for batch, height, width and feature maps
+            one_like_mask = tf.ones_like(mask)
+            batch_range = tf.reshape(tf.range(output_shape[0], dtype=tf.int64), shape=[input_shape[0], 1, 1, 1])
+            b = one_like_mask * batch_range
+            y = mask // (output_shape[2] * output_shape[3])
+            x = mask % (output_shape[2] * output_shape[3]) // output_shape[3]
+            feature_range = tf.range(output_shape[3], dtype=tf.int64)
+            f = one_like_mask * feature_range
+            # transpose indices & reshape update values to one dimension
+            updates_size = tf.size(net)
+            indices = tf.transpose(tf.reshape(tf.stack([b, y, x, f]), [4, updates_size]))
+            values = tf.reshape(net, [updates_size])
+            ret = tf.scatter_nd(indices, values, output_shape)
+            return ret
+
+    def inference(self, images, isTraining):
+        # Local Response Normalization(局部响应归一化), 这里参数位经验值，论文中推荐的参数
+        # 试一下，后期使用全局归一化的方法
+        img_lrn = tf.nn.lrn(images, depth_radius=5, bias=1.0, alpha=0.0001, beta=0.75, name='img_lrn')
+
+        # encode
+        conv1_1 = self.conv_op(img_lrn, [7, 7, img_lrn.get_shape().as_list()[3], 64], stride=1, isTraining=isTraining,
+                               name='1_1')  # 224*224*4 -> 224*224*64
+        conv1_2 = self.conv_op(conv1_1, [7, 7, 64, 64], stride=1, isTraining=isTraining, name='1_2')  # 224*224*64
+        pool1, arg1 = self.max_pool_with_argmax_op(conv1_2, stride=2, name='pool1')  # 112*112*64
+
+        conv2_1 = self.conv_op(pool1, [7, 7, 64, 128], stride=1, isTraining=isTraining, name='2_1')  # 112*112*128
+        conv2_2 = self.conv_op(conv2_1, [7, 7, 128, 128], stride=1, isTraining=isTraining, name='2_2')  # 112*112*128
+        pool2, arg2 = self.max_pool_with_argmax_op(conv2_2, stride=2, name='pool2')  # 56*56*128
+
+        conv3_1 = self.conv_op(pool2, [7, 7, 128, 256], stride=1, isTraining=isTraining, name='3_1')  # 56*56*256
+        conv3_2 = self.conv_op(conv3_1, [7, 7, 256, 256], stride=1, isTraining=isTraining, name='3_2')  # 56*56*256
+        conv3_3 = self.conv_op(conv3_2, [7, 7, 256, 256], stride=1, isTraining=isTraining, name='3_3')  # 56*56*256
+        pool3, arg3 = self.max_pool_with_argmax_op(conv3_3, stride=2, name='pool3')  # 28*28*256
+
+        conv4_1 = self.conv_op(pool3, [7, 7, 256, 512], stride=1, isTraining=isTraining, name='4_1')  # 28*28*512
+        conv4_2 = self.conv_op(conv4_1, [7, 7, 512, 512], stride=1, isTraining=isTraining, name='4_2')  # 28*28*512
+        conv4_3 = self.conv_op(conv4_2, [7, 7, 512, 512], stride=1, isTraining=isTraining, name='4_3')  # 28*28*512
+        pool4, arg4 = self.max_pool_with_argmax_op(conv4_3, stride=2, name='pool4')  # 14*14*512
+
+        conv5_1 = self.conv_op(pool4, [7, 7, 512, 512], stride=1, isTraining=isTraining, name='5_1')  # 14*14*512
+        conv5_2 = self.conv_op(conv5_1, [7, 7, 512, 512], stride=1, isTraining=isTraining, name='5_2')  # 14*14*512
+        conv5_3 = self.conv_op(conv5_2, [7, 7, 512, 512], stride=1, isTraining=isTraining, name='5_3')  # 14*14*512
+        pool5, arg5 = self.max_pool_with_argmax_op(conv5_3, stride=2, name='pool5')  # 7* 7* 512
+
+        # decode
+        unsampling1 = self.unpool(pool5, arg5, stride=2, name='unsampling1')  # 14*14*512
+        deconv1_1 = self.deconv_op(unsampling1, [7, 7, 512, 512], [self.batch_size, 14, 14, 512], stride=1,
+                                   isTraining=isTraining, name='1_1')  # 14*14*512
+        deconv1_2 = self.deconv_op(deconv1_1, [7, 7, 512, 512], [self.batch_size, 14, 14, 512], stride=1,
+                                   isTraining=isTraining, name='1_2')  # 14*14*512
+        deconv1_3 = self.deconv_op(deconv1_2, [7, 7, 512, 512], [self.batch_size, 14, 14, 512], stride=1,
+                                   isTraining=isTraining, name='1_3')  # 14*14*512
+
+        unsampling2 = self.unpool(deconv1_3, arg4, stride=2, name='unsampling2')  # 28*28*512
+        deconv2_1 = self.deconv_op(unsampling2, [7, 7, 256, 512], [self.batch_size, 28, 28, 256], stride=1,
+                                   isTraining=isTraining, name='2_1')  # 28*28*256
+        deconv2_2 = self.deconv_op(deconv2_1, [7, 7, 256, 256], [self.batch_size, 28, 28, 256], stride=1,
+                                   isTraining=isTraining, name='2_2')  # 28*28*256
+        deconv2_3 = self.deconv_op(deconv2_2, [7, 7, 256, 256], [self.batch_size, 28, 28, 256], stride=1,
+                                   isTraining=isTraining, name='2_3')  # 28*28*256
+
+        unsampling3 = self.unpool(deconv2_3, arg3, stride=2, name='unsampling3')  # 56*56*256
+        deconv3_1 = self.deconv_op(unsampling3, [7, 7, 128, 256], [self.batch_size, 56, 56, 128], stride=1,
+                                   isTraining=isTraining, name='3_1')  # 56*56*128
+        deconv3_2 = self.deconv_op(deconv3_1, [7, 7, 128, 128], [self.batch_size, 56, 56, 128], stride=1,
+                                   isTraining=isTraining, name='3_2')  # 56*56*128
+        deconv3_3 = self.deconv_op(deconv3_2, [7, 7, 128, 128], [self.batch_size, 56, 56, 128], stride=1,
+                                   isTraining=isTraining, name='3_3')  # 56*56*128
+
+        unsampling4 = self.unpool(deconv3_3, arg2, stride=2, name='unsampling4')  # 112*112*64
+        deconv4_1 = self.deconv_op(unsampling4, [7, 7, 64, 128], [self.batch_size, 112, 112, 64], stride=1,
+                                   isTraining=isTraining, name='4_1')  # 112*112*64
+        deconv4_2 = self.deconv_op(deconv4_1, [7, 7, 64, 64], [self.batch_size, 112, 112, 64], stride=1,
+                                   isTraining=isTraining, name='4_2')  # 112*112*64
+
+        unsampling5 = self.unpool(deconv4_2, arg1, stride=2, name='unsampling5')  # 224*224*64
+        deconv5_1 = self.deconv_op(unsampling5, [7, 7, 64, 64], [self.batch_size, 224, 224, 64], stride=1,
+                                   isTraining=isTraining, name='5_1')  # 224*224*64
+        deconv5_2 = self.deconv_op(deconv5_1, [7, 7, 64, 64], [self.batch_size, 224, 224, 64], stride=1,
+                                   isTraining=isTraining, name='5_2')  # 224*224*64
+        # deconv5_3 = self.deconv_op(deconv5_2, [3, 3, 2, 64], [self.batch_size, 224, 224, 2], 1, True, activation=True, name='5_3')      # 224*224*64
+
+        # conv_res = self.conv_op(deconv5_2, [7, 7, 64, 2], stride=1, isTraining=isTraining, name='end')
+        conv_res = self.conv_op(deconv5_2, [7, 7, 64, 2], stride=1, isTraining=isTraining, activation=False, name='end')
+
+
+        prediction = self.prediction_result(conv_res)
+
+        # loss = self.cal_loss(conv_res, labels)
+
+        return prediction
+
+    def prediction_result(self, conv_result):
+        # label = tf.cast(label, tf.int32)
+        min_val = tf.constant(value=1.0e-10)
+        conv_result = tf.reshape(conv_result, (-1, 2))  # 2 represent the class is 2
+        conv_result = conv_result + min_val
+        softmax = tf.nn.softmax(conv_result)  # (batch_size, height, width, channels)
+
+        return softmax
+
+    def cal_loss(self, prediction, labels):
+        class_weight = np.array([1.51, 98.49], dtype='float32')
+        # class_weight = np.array([1.0, 4.0])
+        # class_weight = tf.convert_to_tensor(class_weight)
+        min_val = tf.constant(value=1.0e-10)
+        with tf.name_scope('loss'):
+            labels = tf.reshape(tf.one_hot(labels, depth=2), (-1, 2))
+
+            cross_entropy = -tf.reduce_sum(tf.multiply((labels * tf.log(prediction + min_val)), class_weight),
+                                           axis=1)  # [1]
+            # cross_entropy = -tf.reduce_sum(tf.multiply(labels, tf.log(prediction + min_val)), axis=1)
+
+            cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+            tf.add_to_collection('losses', cross_entropy_mean)
+            loss = tf.add_n(tf.get_collection('losses'), name='total_losses')
+        return loss
+
+    '''
+    def cal_loss(self, conv_result, labels):
+        with tf.name_scope('loss'):
+            class_weight = np.array([1, 4], dtype='float32')
+            # label = tf.cast(label, tf.int32)
+            min_val = tf.constant(value=1.0e-10)
+            conv_result = tf.reshape(conv_result, (-1, 2))  # 2 represent the class is 2
+            conv_result = conv_result + min_val
+            softmax = tf.nn.softmax(conv_result)
+
+            labels = tf.reshape(tf.one_hot(labels, depth=2), (-1, 2))
+
+            cross_entropy = -tf.reduce_sum(tf.multiply((labels * tf.log(softmax + min_val)), class_weight), axis=1)  # [1]
+            cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+            tf.add_to_collection('losses', cross_entropy_mean)
+            loss = tf.add_n(tf.get_collection('losses'), name='total_losses')
+        return loss
+
+    '''
+
+    def train(self):
+
+        isTrain = tf.constant(True, dtype=tf.bool)
+        impro = improcess()
+        images, labels = impro.read_up_to_file(self.tf_file_path, self.batch_size)
+        prediction = self.inference(images, isTrain)
+
+        label = tf.reshape(tf.one_hot(labels, depth=2), (-1, 2))
+        accuracy = tf.equal(tf.arg_max(prediction, 1), tf.arg_max(label, 1), name='acc')
+        accuracy = tf.reduce_mean(tf.cast(accuracy, dtype=tf.float32))
+
+        global_step = tf.Variable(0, trainable=False)
+        variable_averages = tf.train.ExponentialMovingAverage(self.moving_average_decay, global_step)
+        variables_averages_op = variable_averages.apply(tf.trainable_variables())
+
+        loss = self.cal_loss(prediction, labels)
+
+        # new add learning_rate_decay
+
+        learning_rate = tf.train.exponential_decay(self.learning_rate, global_step,
+                                                   1474 / self.batch_size,
+                                                   self.learning_rate_decay)
+
+        train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss, global_step=global_step)
+        # train_step = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(loss, global_step=global_step)
+
+        with tf.control_dependencies([train_step, variables_averages_op]):
+            train_op = tf.no_op(name='train')
+
+        saver = tf.train.Saver()
+        num = 1
+
+        with tf.Session() as sess:
+            tf.global_variables_initializer().run()
+            tf.local_variables_initializer().run()
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+            train_nums = 1474 * self.num_epochs / self.batch_size
+            print '------------begin-----------------'
+
+            for i in range(train_nums):
+                _, step, losses = sess.run([train_op, global_step, loss])
+                if i % 20 == 0:
+                    print 'step %s loss is: %s' % (step, losses)
+
+                if i % (1474 / self.batch_size) == 0:
+                    acc = sess.run(accuracy)
+                    print '----------' + str(num) + ' epoch, %s --------' % step
+                    print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+                    print 'accuracy:', acc
+                    print 'step %s loss is: %s' % (step, losses)
+
+                    num += 1
+
+            print '------------end-----------------'
+
+            saver.save(sess, self.model_path)
+
+            coord.request_stop()
+            coord.join(threads)
+
+    def prediction_tiff(self):
+
+        isTrain = tf.constant(False, dtype=tf.bool)
+        impro = improcess()
+        files, images = impro.read_bacth_multifile(self.predict_path, self.batch_size)
+
+        prediction = self.inference(images, isTrain)
+
+        prediction_arrlist = tf.arg_max(prediction, 1)
+
+        out_arr = []
+        saver = tf.train.Saver()
+        with tf.Session() as sess:
+            tf.global_variables_initializer().run()
+            tf.local_variables_initializer().run()
+
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+            print sess.run(files)
+
+            saver.restore(sess, self.model_path)
+            for i in range(2516 / self.batch_size):
+                pre = sess.run(prediction_arrlist)
+
+                tmp_val = pre.reshape(1, 1856512)
+                out_arr.append(tmp_val)
+
+            coord.request_stop()
+            coord.join(threads)
+        out_arr = np.array(out_arr, dtype='int32')
+        out_string = out_arr.tostring()
+
+        tf.gfile.FastGFile('oss://remotecom/train_learning_decay2/prediction_tiff/precision001.txt', 'wb').write(
+            out_string)
+
+    def pre_loss(self):
+        isTrain = tf.constant(True, dtype=tf.bool)
+        impro = improcess()
+        images, labels = impro.read_up_to_file(self.tf_file_path, self.batch_size)
+        prediction = self.inference(images, isTrain)
+
+        label = tf.reshape(tf.one_hot(labels, depth=2), (-1, 2))
+        accuracy = tf.equal(tf.arg_max(prediction, 1), tf.arg_max(label, 1), name='acc')
+        accuracy = tf.reduce_mean(tf.cast(accuracy, dtype=tf.float32))
+
+        # global_step = tf.Variable(0, trainable=False)
+        # variable_averages = tf.train.ExponentialMovingAverage(self.moving_average_decay, global_step)
+        '''
+
+        variable_averages = tf.train.ExponentialMovingAverage(self.moving_average_decay)
+        variables_to_restore = variable_averages.variables_to_restore()
+
+        loss = self.cal_loss(prediction, labels)
+
+        saver = tf.train.Saver(variables_to_restore)
+        '''
+        loss = self.cal_loss(prediction, labels)
+
+        saver = tf.train.Saver()
+
+        with tf.Session() as sess:
+            tf.global_variables_initializer().run()
+            tf.local_variables_initializer().run()
+
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+            saver.restore(sess, self.model_path)
+
+            for i in range(134):
+                losses, acc = sess.run([loss, accuracy])
+                print '-----------------------1st batch_size-------------------------'
+                print 'loss:', losses
+                print 'accuracy:', acc
+
+            coord.request_stop()
+            coord.join(threads)
+
+    def pre_tiff(self):
+        isTrain = tf.constant(True, dtype=tf.bool)
+        impro = improcess()
+        # files, images = impro.read_bacth_multifile(self.predict_path, self.batch_size)
+        images, labels = impro.read_up_to_file(self.tf_file_path, self.batch_size)
+
+        prediction = self.inference(images, isTrain)
+        result = tf.arg_max(prediction, 1)
+
+        out_arr = []
+        saver = tf.train.Saver()
+        with tf.Session() as sess:
+            tf.global_variables_initializer().run()
+            tf.local_variables_initializer().run()
+
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+            saver.restore(sess, self.model_path)
+
+            for i in range(134):
+                pre_result = sess.run(result)
+                tmp_val = pre_result.reshape(1, 551936)
+                out_arr.append(tmp_val)
+
+            coord.request_stop()
+            coord.join(threads)
+
+        out_arr = np.array(out_arr, dtype='int32')
+        out_string = out_arr.tostring()
+
+        tf.gfile.FastGFile('oss://remotecom/pre_train/pre_train.txt', 'wb').write(out_string)
+
+
+if __name__ == '__main__':
+    # m = improcess()
+    # m.split_img_mul()
+    # m.split_img_single()
+    # m.write_to_tffile()
+    # m.read_up_to_file('/home/zb/tmp/sp_new/abc/15.tfrecords', 1)
+
+    tf_file_path = 'oss://remotecom/remote/train_file/train.tfrecords'
+    # tf_file_path = '/home/zb/tmp/sp_new/abc/15.tfrecords'
+    model_path = 'oss://remotecom/train7x7/model/model.ckpt'
+    predict_path = 'oss://remotecom/'
+    # segnet = SegNet(50, 11, 0.001, 0.99, 0.9999, tf_file_path, model_path)
+    # segnet.train()
+
+
+    segnet = SegNet(200, 11, 0.0001, 0.99, 0.9999, tf_file_path, model_path, predict_path)
+    segnet.train()
+    # segnet.pre_loss()
+    # segnet.pre_tiff()
+
+    # segnet.prediction_tiff()
+    '''
+
+    filename = '/home/zb/桌面/new_project/largen_label.tif'
+    im = gdal.Open(filename)
+    im_arr = im.ReadAsArray()
+    s = np.sum(im_arr)
+    print s * 1.0 / (15106 * 5106)
+    '''
+
+
+
+
+
+
+
+
+
+
+
+
