@@ -1,0 +1,224 @@
+# -*- coding: utf8 -*-
+import gdal
+import numpy as np
+import cv2
+import tensorflow as tf
+
+
+
+def write_tiff(file_outpath, input_arr, out_width, out_height, out_band):
+    driver = gdal.GetDriverByName("GTiff")
+    dst_ds = driver.Create(file_outpath, out_width, out_height, out_band, gdal.GDT_UInt16)
+    if out_band == 1:
+        dst_ds.GetRasterBand(1).WriteArray(input_arr)
+    elif out_band > 1:
+        for i in range(out_band):
+            dst_ds.GetRasterBand(i + 1).WriteArray(input_arr[i])
+
+
+
+def writeTiff(im_data, im_width, im_height, im_bands, path, im_geotrans=None, im_proj=None):
+    if 'int8' in im_data.dtype.name:
+        datatype = gdal.GDT_Byte
+    elif 'int16' in im_data.dtype.name:
+        datatype = gdal.GDT_UInt16
+    else:
+        datatype = gdal.GDT_Float32
+
+    if len(im_data.shape) == 3:
+        im_bands, im_height, im_width = im_data.shape
+    else:
+        im_bands, (im_height, im_width) = 1, im_data.shape
+        # 创建文件
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(path, im_width, im_height, im_bands, datatype)
+    if (dataset != None) & (im_geotrans != None) & (im_proj != None):
+        dataset.SetGeoTransform(im_geotrans)  # 写入仿射变换参数
+        dataset.SetProjection(im_proj)  # 写入投影
+    for i in range(im_bands):
+        # dataset.GetRasterBand(i+1).WriteArray(im_data[i])
+        dataset.GetRasterBand(i + 1).WriteArray(im_data)
+    del dataset
+
+
+
+def grb_to_gray(rgb_file, gray_file):
+    lena = cv2.imread(rgb_file)
+    img = lena
+    height = img.shape[0]
+    width = img.shape[1]
+    channels = img.shape[2]
+
+    value = [0] * 3
+    gray_img = np.zeros([height, width], np.uint8)
+
+    for row in range(height):
+        for column in range(width):
+            for chan in range(channels):
+                value[chan] = img[row, column, chan]
+            R = value[2]
+            G = value[1]
+            B = value[0]
+            # new_value = 0.2989 * R + 0.5870 * G + 0.1140 * B
+            new_value = 0.2989 * R + 0.5870 * G + 0.1140 * B  # 转为灰度像素
+            gray_img[row, column] = new_value
+
+    cv2.imwrite(gray_file, gray_img)
+
+def gray_to01(gray_file, gray_to_01_file):
+    gray_img = gdal.Open(gray_file)
+    gray_img_arr = gray_img.ReadAsArray()
+
+    tmp_arr = np.array(gray_img_arr, dtype='float32')
+    tmp_arr = (tmp_arr / 255) * 2
+    tmp_arr = np.array(tmp_arr, dtype='int32')
+
+    write_tiff(gray_to_01_file, tmp_arr, 960, 960, 1)
+
+
+
+
+def all_change_to_gray(gray_out_path):
+    flags = 0
+    rgb_file_path = '/home/zb/zzz/tuu/2017/2017_'
+
+    for i in range(5):
+        rgb_file_path_1 = rgb_file_path + str(i) + '/'
+        for j in range(15):
+            rgb_file_path_2 = rgb_file_path_1 + str(i) + '_' + str(j) + '_960_.jpg'
+            gray_out_path2 = gray_out_path + str(flags) + '.jpg'
+            grb_to_gray(rgb_file_path_2, gray_out_path2)
+            flags += 1
+
+
+
+def all_gray_to_01():
+    gray_file_path = '/home/zb/gray_file/'
+    file_01_path = '/home/zb/01_file/'
+    for i in range(75):
+        gray_file_path_ = gray_file_path + str(i) + '.jpg'
+        file_01_path_ = file_01_path + str(i) + '.tif'
+
+        gray_to01(gray_file_path_, file_01_path_)
+
+
+def concatenate_axis1(num):
+    file_01_path = '/home/zb/01_file/'
+    for i in range(5):
+        file_01_path_ = file_01_path + str(0 + num * 15) + '.tif'
+        im1 = gdal.Open(file_01_path_)
+        im1_arr = im1.ReadAsArray()
+        for j in range(14):
+            file_01_path_ = file_01_path + str(j + 1 + num * 15) + '.tif'
+            im = gdal.Open(file_01_path_)
+            im_arr = im.ReadAsArray()
+            im1_arr = np.concatenate((im1_arr, im_arr), axis=1)
+
+    return im1_arr
+
+def concatenate_all():
+    arr1 = concatenate_axis1(0)
+    arr2 = concatenate_axis1(1)
+    arr3 = concatenate_axis1(2)
+    arr4 = concatenate_axis1(3)
+    arr5 = concatenate_axis1(4)
+    arr = np.concatenate((arr1, arr2, arr3, arr4, arr5), axis=0)
+    filename = '/home/zb/im17_little.tif'
+    write_tiff(filename, arr, 14400, 4800, 1)
+
+    filename2 = '/home/zb/im17_large.tif'
+    file_com = '/home/zb/tmp/1/tinysample.tif'
+    im_tiny = gdal.Open(file_com)
+
+    writeTiff(arr, 14400, 4800, 1, filename2, [0, 12, 0, 0, 0, -12], im_tiny.GetProjection())
+
+
+def split_img():
+    file_15 = '/home/zb/tmp/1/quickbird2017.tif'
+    file_15_label = '/home/zb/im17_little.tif'
+    file_15_out_path = '/home/zb/split_hhh/im17/'
+    file_15label_out_path = '/home/zb/split_hhh/im17_label/'
+
+    flags = 0
+    im = gdal.Open(file_15)
+    for i in range(10):
+        for j in range(30):
+            im_arr = im.ReadAsArray(xoff=j * 480, yoff=i * 480, xsize=480, ysize=480)
+            filename = file_15_out_path + str(flags) + '.tif'
+            write_tiff(filename, im_arr, 480, 480, 4)
+            flags += 1
+
+
+    flags = 0
+    im = gdal.Open(file_15_label)
+    for i in range(10):
+        for j in range(30):
+            im_arr = im.ReadAsArray(xoff=j * 480, yoff=i * 480, xsize=480, ysize=480)
+            filename = file_15label_out_path + str(flags) + '.tif'
+            write_tiff(filename, im_arr, 480, 480, 1)
+            flags += 1
+
+
+def _bytes_features(value):
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+
+
+def convert_to_tfrecords():
+
+    filename = '/home/zb/split_hhh/im17/'
+    filename2 = '/home/zb/split_hhh/im17_label/'
+    filename_out= '/home/zb/split_hhh/train17.tfrecords'
+
+    writer = tf.python_io.TFRecordWriter(filename_out)
+    for i in range(150):
+        file_im = filename + str(i) + '.tif'
+        file_label = filename2 + str(i) + '.tif'
+
+        im = gdal.Open(file_im)
+        im_arr = im.ReadAsArray()
+        im_label = gdal.Open(file_label)
+        im_label_arr = im_label.ReadAsArray()
+        im_arr = np.array(im_arr, dtype='float32')
+        im_arr = np.transpose(im_arr, [1, 2, 0])
+        im_label_arr = np.array(im_label_arr, dtype='int32')
+        im_raw = im_arr.tostring()
+        im_label_raw = im_label_arr.tostring()
+
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'img_raw': _bytes_features(im_raw),
+            'label': _bytes_features(im_label_raw),
+        }))
+
+        writer.write(example.SerializeToString())
+    for i in range(114):
+        file_im = filename + str(i+186) + '.tif'
+        file_label = filename2 + str(i+186) + '.tif'
+
+        im = gdal.Open(file_im)
+        im_arr = im.ReadAsArray()
+        im_label = gdal.Open(file_label)
+        im_label_arr = im_label.ReadAsArray()
+        im_arr = np.array(im_arr, dtype='float32')
+        im_arr = np.transpose(im_arr, [1, 2, 0])
+        im_label_arr = np.array(im_label_arr, dtype='int32')
+        im_raw = im_arr.tostring()
+        im_label_raw = im_label_arr.tostring()
+
+
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'img_raw': _bytes_features(im_raw),
+            'label': _bytes_features(im_label_raw),
+        }))
+        writer.write(example.SerializeToString())
+    writer.close()
+
+
+if __name__ == '__main__':
+    gray_file_path = '/home/zb/gray_file/'
+    #all_change_to_gray(gray_file_path)
+    #all_gray_to_01()
+    #concatenate_all()
+    #split_img()
+    convert_to_tfrecords()
+
