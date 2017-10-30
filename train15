@@ -150,23 +150,25 @@ class SegNet():
         conv4_1 = self.conv_op(pool3, [3, 3, 256, 512], stride=1, isTraining=isTraining, name='4_1')  # 60*60*512
         pool4, arg4 = self.max_pool_with_argmax_op(conv4_1, stride=2, name='pool4')  # 30*30*512
 
+        conv5_1 = self.conv_op(pool4, [3, 3, 512, 512], stride=1, isTraining=isTraining, name='5_1')  # 30*30*512
+
+
 
         # decode
         unsampling1 = self.unpool(pool4, arg4, stride=2, name='unsampling1')  # 60*60*512
-        deconv1_1 = self.deconv_op(unsampling1, [3, 3, 512, 512], [self.batch_size, 60, 60, 512], stride=1,
+        deconv1_1 = self.deconv_op(unsampling1, [3, 3, 256, 512], [self.batch_size, 60, 60, 256], stride=1,
                                    isTraining=isTraining, name='1_1')  # 60*60*512
 
         unsampling2 = self.unpool(deconv1_1, arg3, stride=2, name='unsampling2')  # 120*120*512
-        deconv2_1 = self.deconv_op(unsampling2, [3, 3, 256, 512], [self.batch_size, 120, 120, 256], stride=1,
+        deconv2_1 = self.deconv_op(unsampling2, [3, 3, 128, 256], [self.batch_size, 120, 120, 128], stride=1,
                                    isTraining=isTraining, name='2_1')  # 120*120*256
 
         unsampling3 = self.unpool(deconv2_1, arg2, stride=2, name='unsampling3')  # 240*240*256
-        deconv3_1 = self.deconv_op(unsampling3, [3, 3, 128, 256], [self.batch_size, 240, 240, 128], stride=1,
+        deconv3_1 = self.deconv_op(unsampling3, [3, 3, 64, 128], [self.batch_size, 240, 240, 64], stride=1,
                                    isTraining=isTraining, name='3_1')  # 240*240*128
 
-        unsampling4 = self.unpool(deconv3_1, arg2, stride=2, name='unsampling4')  # 480*480*64
-
-        deconv4_1 = self.deconv_op(unsampling4, [3, 3, 64, 128], [self.batch_size, 480, 480, 64], stride=1,
+        unsampling4 = self.unpool(deconv3_1, arg1, stride=2, name='unsampling4')  # 480*480*64
+        deconv4_1 = self.deconv_op(unsampling4, [3, 3, 64, 64], [self.batch_size, 480, 480, 64], stride=1,
                                    isTraining=isTraining, name='4_1')  # 112*112*64
 
         conv_res = self.conv_op(deconv4_1, [3, 3, 64, 2], stride=1, isTraining=isTraining, activation=False, name='end')
@@ -207,8 +209,8 @@ class SegNet():
         isTrain = tf.constant(True, dtype=tf.bool)
 
         prediction = self.inference(img_batch, isTrain)
-
-        acc_val = tf.equal(tf.arg_max(prediction, 1), tf.reshape(label_batch, (-1, 1)), name='acc')
+        labels = tf.reshape(label_batch, (-1, 1))
+        acc_val = tf.equal(tf.arg_max(prediction, 1), tf.cast(labels, dtype=tf.int64), name='acc')
         accuracy = tf.reduce_mean(tf.cast(acc_val, dtype=tf.float32))
 
         losses = self.cal_loss(prediction, label_batch)
@@ -267,7 +269,6 @@ class SegNet():
                         print '240/264   --------------------------->      losses: %s    accuracy: %s' % (loss, acc)
                     elif j == 66:
                         print '264/264   ------------------------------>   losses: %s    accuracy: %s' % (loss, acc)
-                print ''
 
             saver.save(sess, model_path)
 
@@ -275,9 +276,9 @@ class SegNet():
             coord.join(threads)
 
 if __name__ == '__main__':
-    train15_file = 'oss://remotecom/train15/train_file/train15.tfrecords'
+    #train15_file = 'oss://remotecom/train15/train_file/train15.tfrecords'
     model15 = 'oss://remotecom/train15/model/model15.ckpt'
+    train15_file = '/home/zb/split_hhh/train15.tfrecords'
     net = SegNet(150, 4, 0.01, 0.99, 0.9999)
     net.train(train15_file, model15)
-
 
