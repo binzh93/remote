@@ -1,0 +1,41 @@
+# -*- coding: utf8 -*-
+import gdal
+import numpy as np
+
+import cv2
+import numpy
+
+def grb_to_gray(rgb_file, gray_file):
+    lena = cv2.imread(rgb_file)
+    img = lena
+    height = img.shape[0]
+    width = img.shape[1]
+    channels = img.shape[2]
+
+    value = [0] * 3
+    gray_img = numpy.zeros([height, width], numpy.uint8)
+
+    for row in range(height):
+        for column in range(width):
+            for chan in range(channels):
+                value[chan] = img[row, column, chan]
+            R = value[2]
+            G = value[1]
+            B = value[0]
+            # new_value = 0.2989 * R + 0.5870 * G + 0.1140 * B
+            new_value = 0.2989 * R + 0.5870 * G + 0.1140 * B  # 转为灰度像素
+            gray_img[row, column] = new_value
+
+    cv2.imwrite(gray_file, gray_img)
+
+def gray_to01(gray_file, gray_to_01_file):
+    gray_img = gdal.Open(gray_file)
+    gray_img_arr = gray_img.ReadAsArray()
+    print gray_img_arr.shape
+
+
+if __name__ == '__main__':
+    gray_file = '/home/zb/first_provided.tif'
+    gray_to_01_file = '/home/zb/ppp.tif'
+
+    gray_to01(gray_file, gray_to_01_file)
