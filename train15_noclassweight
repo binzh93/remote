@@ -1,5 +1,6 @@
 # -*- coding: utf8 -*-
 import tensorflow as tf
+import numpy as np
 import time
 
 
@@ -38,10 +39,24 @@ class improcess():
         imgs = tf.decode_raw(feature['img_raw'], tf.float32)
         labels = tf.decode_raw(feature['label'], tf.int32)
 
-        img_batch = tf.reshape(imgs, (batch_size, 480, 480, 4))
-        label_batch = tf.reshape(labels, (batch_size, 480, 480))
+        img_batch = tf.reshape(imgs, (batch_size, 224, 224, 4))
+        label_batch = tf.reshape(labels, (batch_size, 224, 224))
 
         return img_batch, label_batch
+
+    def read_batch_nolabel(self, filename, batch_size):
+        # filename= '/home/zb/split_hhh/train15.tfrecords'
+        file_queue = tf.train.string_input_producer([filename])
+        reader = tf.TFRecordReader()
+        _, queue_batch = reader.read_up_to(file_queue, batch_size)
+        feature = tf.parse_example(queue_batch, features={
+            'img_raw': tf.FixedLenFeature([], tf.string),
+        })
+        imgs = tf.decode_raw(feature['img_raw'], tf.float32)
+
+        img_batch = tf.reshape(imgs, (batch_size, 224, 224, 4))
+
+        return img_batch
 
 
 class SegNet():
@@ -64,7 +79,7 @@ class SegNet():
         with tf.variable_scope('conv' + name) as scope:
 
             kernel = tf.get_variable('conv-kernel', shape=kernel_shape,
-                                      initializer=tf.contrib.layers.xavier_initializer_conv2d())     # attention
+                                     initializer=tf.contrib.layers.xavier_initializer_conv2d())  # attention
             '''
             kernel = tf.get_variable('conv-kernel', shape=kernel_shape,
                                      initializer=tf.truncated_normal_initializer(stddev=0.1))  # attention
@@ -107,7 +122,8 @@ class SegNet():
 
     def max_pool_with_argmax_op(self, input, stride, name):
         # tf.nn.max_pool_with_argmax, only GPU-supported, tf.nn.max_pool_with_argmax_and_mask seem to high version support
-        return tf.nn.max_pool_with_argmax(input, ksize=[1, 2, 2, 1], strides=[1, stride, stride, 1], padding='SAME', name=name)
+        return tf.nn.max_pool_with_argmax(input, ksize=[1, 2, 2, 1], strides=[1, stride, stride, 1], padding='SAME',
+                                          name=name)
 
     def unpool(self, net, mask, stride, name):
         assert mask is not None
@@ -131,54 +147,63 @@ class SegNet():
             ret = tf.scatter_nd(indices, values, output_shape)
             return ret
 
-
-    def inference(self, images, isTraining):
-        # Local Response Normalization(局部响应归一化), 这里参数位经验值，论文中推荐的参数
-        # 试一下，后期使用全局归一化的方法
+    def inference(self, images, isTraining, isTraining2):
+        # Local Response Normalization(灞€閮ㄥ搷搴斿綊涓€鍖�), 杩欓噷鍙傛暟浣嶇粡楠屽€硷紝璁烘枃涓帹鑽愮殑鍙傛暟
+        # 璇曚竴涓嬶紝鍚庢湡浣跨敤鍏ㄥ眬褰掍竴鍖栫殑鏂规硶
         img_lrn = tf.nn.lrn(images, depth_radius=5, bias=1.0, alpha=0.0001, beta=0.75, name='img_lrn')
 
         # encode
-        conv1_1 = self.conv_op(img_lrn, [3, 3, img_lrn.get_shape().as_list()[3], 64], stride=1, isTraining=isTraining, name='1_1')  # 480*480*4  -> 480*480*64
-        pool1, arg1 = self.max_pool_with_argmax_op(conv1_1, stride=2, name='pool1')  # 240*240*64
+        conv1_1 = self.conv_op(img_lrn, [3, 3, img_lrn.get_shape().as_list()[3], 64], stride=1, isTraining=isTraining,
+                               name='1_1')  # 224*224*4  -> 224*224*64
+        pool1, arg1 = self.max_pool_with_argmax_op(conv1_1, stride=2, name='pool1')  # 112*112*64
 
-        conv2_1 = self.conv_op(pool1, [3, 3, 64, 128], stride=1, isTraining=isTraining, name='2_1')  # 240*240*128
-        pool2, arg2 = self.max_pool_with_argmax_op(conv2_1, stride=2, name='pool2')  # 120*120*128
+        conv2_1 = self.conv_op(pool1, [3, 3, 64, 128], stride=1, isTraining=isTraining, name='2_1')  # 112*112*128
+        pool2, arg2 = self.max_pool_with_argmax_op(conv2_1, stride=2, name='pool2')  # 56*56*128
 
-        conv3_1 = self.conv_op(pool2, [3, 3, 128, 256], stride=1, isTraining=isTraining, name='3_1')  # 120*120*256
-        pool3, arg3 = self.max_pool_with_argmax_op(conv3_1, stride=2, name='pool3')  # 60*60*256
+        conv3_1 = self.conv_op(pool2, [3, 3, 128, 256], stride=1, isTraining=isTraining, name='3_1')  # 56*56*256
+        pool3, arg3 = self.max_pool_with_argmax_op(conv3_1, stride=2, name='pool3')  # 28*28*256
 
-        conv4_1 = self.conv_op(pool3, [3, 3, 256, 512], stride=1, isTraining=isTraining, name='4_1')  # 60*60*512
-        pool4, arg4 = self.max_pool_with_argmax_op(conv4_1, stride=2, name='pool4')  # 30*30*512
+        if isTraining2 is True:
+            pool3 = tf.nn.dropout(pool3, keep_prob=0.9)
+        else:
+            pool3 = tf.nn.dropout(pool3, keep_prob=1)
 
-        conv5_1 = self.conv_op(pool4, [3, 3, 512, 512], stride=1, isTraining=isTraining, name='5_1')  # 30*30*512
+        conv4_1 = self.conv_op(pool3, [3, 3, 256, 512], stride=1, isTraining=isTraining, name='4_1')  # 28*28*512
+        pool4, arg4 = self.max_pool_with_argmax_op(conv4_1, stride=2, name='pool4')  # 14*14*512
 
-
+        conv5_1 = self.conv_op(pool4, [3, 3, 512, 512], stride=1, isTraining=isTraining, name='5_1')  # 14*14*512
+        if isTraining2 is True:
+            conv5_1 = tf.nn.dropout(conv5_1, keep_prob=0.9)
+        else:
+            conv5_1 = tf.nn.dropout(conv5_1, keep_prob=1)
 
         # decode
-        unsampling1 = self.unpool(pool4, arg4, stride=2, name='unsampling1')  # 60*60*512
-        deconv1_1 = self.deconv_op(unsampling1, [3, 3, 256, 512], [self.batch_size, 60, 60, 256], stride=1,
-                                   isTraining=isTraining, name='1_1')  # 60*60*512
+        unsampling1 = self.unpool(conv5_1, arg4, stride=2, name='unsampling1')  # 28*28*512
+        deconv1_1 = self.deconv_op(unsampling1, [3, 3, 256, 512], [self.batch_size, 28, 28, 256], stride=1,
+                                   isTraining=isTraining, name='1_1')  # 28*28*256
 
-        unsampling2 = self.unpool(deconv1_1, arg3, stride=2, name='unsampling2')  # 120*120*512
-        deconv2_1 = self.deconv_op(unsampling2, [3, 3, 128, 256], [self.batch_size, 120, 120, 128], stride=1,
-                                   isTraining=isTraining, name='2_1')  # 120*120*256
+        unsampling2 = self.unpool(deconv1_1, arg3, stride=2, name='unsampling2')  # 56*56*256
+        deconv2_1 = self.deconv_op(unsampling2, [3, 3, 128, 256], [self.batch_size, 56, 56, 128], stride=1,
+                                   isTraining=isTraining, name='2_1')  # 56*56*256
 
-        unsampling3 = self.unpool(deconv2_1, arg2, stride=2, name='unsampling3')  # 240*240*256
-        deconv3_1 = self.deconv_op(unsampling3, [3, 3, 64, 128], [self.batch_size, 240, 240, 64], stride=1,
-                                   isTraining=isTraining, name='3_1')  # 240*240*128
+        unsampling3 = self.unpool(deconv2_1, arg2, stride=2, name='unsampling3')  # 128*128*256
+        deconv3_1 = self.deconv_op(unsampling3, [3, 3, 64, 128], [self.batch_size, 112, 112, 64], stride=1,
+                                   isTraining=isTraining, name='3_1')  # 112*112*128
+        if isTraining2 is True:
+            deconv3_1 = tf.nn.dropout(deconv3_1, keep_prob=0.9)
+        else:
+            deconv3_1 = tf.nn.dropout(deconv3_1, keep_prob=1)
 
-        unsampling4 = self.unpool(deconv3_1, arg1, stride=2, name='unsampling4')  # 480*480*64
-        deconv4_1 = self.deconv_op(unsampling4, [3, 3, 64, 64], [self.batch_size, 480, 480, 64], stride=1,
+        unsampling4 = self.unpool(deconv3_1, arg1, stride=2, name='unsampling4')  # 224*224*64
+        deconv4_1 = self.deconv_op(unsampling4, [3, 3, 64, 64], [self.batch_size, 224, 224, 64], stride=1,
                                    isTraining=isTraining, name='4_1')  # 112*112*64
 
         conv_res = self.conv_op(deconv4_1, [3, 3, 64, 2], stride=1, isTraining=isTraining, activation=False, name='end')
-
 
         prediction = self.prediction_result(conv_res)
 
         # loss = self.cal_loss(conv_res, labels)
         return prediction
-
 
     def prediction_result(self, conv_result):
         # label = tf.cast(label, tf.int32)
@@ -190,12 +215,12 @@ class SegNet():
         return softmax
 
     def cal_loss(self, prediction, labels):
-        #class_weight = np.array([1.51, 98.49], dtype='float32')
+        # class_weight = np.array([25, 75], dtype='float32')
         min_val = tf.constant(value=1.0e-10)
         with tf.name_scope('loss'):
             labels = tf.reshape(tf.one_hot(labels, depth=2), (-1, 2))
 
-            #cross_entropy = -tf.reduce_sum(tf.multiply((labels * tf.log(prediction + min_val)), class_weight), axis=1)  # [1]
+            # cross_entropy = -tf.reduce_sum(tf.multiply((labels * tf.log(prediction + min_val)), class_weight), axis=1)  # [1]
             cross_entropy = -tf.reduce_sum(tf.multiply(labels, tf.log(prediction + min_val)), axis=1)
 
             cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
@@ -208,10 +233,16 @@ class SegNet():
         img_batch, label_batch = impro.read_batch(train_filename, self.batch_size)
         isTrain = tf.constant(True, dtype=tf.bool)
 
-        prediction = self.inference(img_batch, isTrain)
+        prediction = self.inference(img_batch, isTrain, True)
+
+        label = tf.reshape(tf.one_hot(label_batch, depth=2), (-1, 2))
+        acc_val = tf.equal(tf.arg_max(prediction, 1), tf.arg_max(label, 1))
+
+        '''
         labels = tf.reshape(label_batch, (-1, 1))
         acc_val = tf.equal(tf.arg_max(prediction, 1), tf.cast(labels, dtype=tf.int64), name='acc')
-        accuracy = tf.reduce_mean(tf.cast(acc_val, dtype=tf.float32))
+        '''
+        accuracy = tf.reduce_mean(tf.cast(acc_val, dtype=tf.float32), name='acc')
 
         losses = self.cal_loss(prediction, label_batch)
 
@@ -220,7 +251,7 @@ class SegNet():
         variables_averages_op = variable_averages.apply(tf.trainable_variables())
 
         learning_rate = tf.train.exponential_decay(self.learning_rate, global_step,
-                                                   264 / self.batch_size,
+                                                   1056 / self.batch_size,
                                                    self.learning_rate_decay)
 
         train_step = tf.train.AdamOptimizer(learning_rate).minimize(losses, global_step=global_step)
@@ -237,9 +268,7 @@ class SegNet():
             coord = tf.train.Coordinator()
             threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-            _, setp, acc, loss = sess.run([train_op, global_step, accuracy, losses])
-
-            num = 264 / self.batch_size
+            num = 1056 / self.batch_size
 
             for i in range(self.num_epochs):
                 print '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'
@@ -247,38 +276,74 @@ class SegNet():
                 print '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'
                 print 'Epoch %s/%s ' % (i, self.num_epochs)
                 for j in range(num):
-                    if j == 6:
-                        print '24/264   >                                 losses: %s    accuracy: %s' % (loss, acc)
-                    elif j == 12:
-                        print '48/264   --->                              losses: %s    accuracy: %s' % (loss, acc)
-                    elif j == 18:
-                        print '72/264   ------>                           losses: %s    accuracy: %s' % (loss, acc)
+                    _, setp, acc, loss = sess.run([train_op, global_step, accuracy, losses])
+                    if j == 12:
+                        print '12/132   >..................................losses: %s    accuracy: %s' % (loss, acc)
                     elif j == 24:
-                        print '96/264   --------->                        losses: %s    accuracy: %s' % (loss, acc)
-                    elif j == 30:
-                        print '120/264   ------------>                     losses: %s    accuracy: %s' % (loss, acc)
+                        print '24/132   --->...............................losses: %s    accuracy: %s' % (loss, acc)
                     elif j == 36:
-                        print '144/264   --------------->                  losses: %s    accuracy: %s' % (loss, acc)
-                    elif j == 42:
-                        print '168/264   ------------------>               losses: %s    accuracy: %s' % (loss, acc)
+                        print '36/132   ------>............................losses: %s    accuracy: %s' % (loss, acc)
                     elif j == 48:
-                        print '192/264   --------------------->            losses: %s    accuracy: %s' % (loss, acc)
-                    elif j == 54:
-                        print '216/264   ------------------------>         losses: %s    accuracy: %s' % (loss, acc)
+                        print '48/132   --------->.........................losses: %s    accuracy: %s' % (loss, acc)
                     elif j == 60:
-                        print '240/264   --------------------------->      losses: %s    accuracy: %s' % (loss, acc)
-                    elif j == 66:
-                        print '264/264   ------------------------------>   losses: %s    accuracy: %s' % (loss, acc)
+                        print '60/132   ------------>......................losses: %s    accuracy: %s' % (loss, acc)
+                    elif j == 72:
+                        print '72/132   --------------->...................losses: %s    accuracy: %s' % (loss, acc)
+                    elif j == 84:
+                        print '84/132   ------------------>................losses: %s    accuracy: %s' % (loss, acc)
+                    elif j == 96:
+                        print '96/132   --------------------->.............losses: %s    accuracy: %s' % (loss, acc)
+                    elif j == 108:
+                        print '108/132   ------------------------>.........losses: %s    accuracy: %s' % (loss, acc)
+                    elif j == 120:
+                        print '120/132   --------------------------->......losses: %s    accuracy: %s' % (loss, acc)
+                    elif j == 132:
+                        print '132/132   ------------------------------>...losses: %s    accuracy: %s' % (loss, acc)
 
             saver.save(sess, model_path)
 
             coord.request_stop()
             coord.join(threads)
 
-if __name__ == '__main__':
-    #train15_file = 'oss://remotecom/train15/train_file/train15.tfrecords'
-    model15 = 'oss://remotecom/train15/model/model15.ckpt'
-    train15_file = '/home/zb/split_hhh/train15.tfrecords'
-    net = SegNet(150, 4, 0.01, 0.99, 0.9999)
-    net.train(train15_file, model15)
+    def prediction(self, pre_filein, model_file, pre_result_path):
+        impro = improcess()
+        img_batch = impro.read_batch_nolabel(pre_filein, self.batch_size)
+        isTrain = tf.constant(True, dtype=tf.bool)
 
+        prediction = self.inference(img_batch, isTrain, False)
+        pre_val = tf.cast(tf.arg_max(prediction, 1), dtype=tf.int32)
+
+        variable_average = tf.train.ExponentialMovingAverage(self.moving_average_decay)
+        variables_to_restore = variable_average.variables_to_restore()
+
+        saver = tf.train.Saver(variables_to_restore)
+        out_arr = []
+        with tf.Session() as sess:
+            tf.global_variables_initializer().run()
+            tf.local_variables_initializer().run()
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+            saver.restore(sess, model_file)
+            nums = 1564 / self.batch_size
+            for i in range(nums):
+                pre_res = sess.run(pre_val)
+                tmp_val = np.reshape(pre_res, (1, 200704))
+                out_arr.append(tmp_val)
+
+            coord.request_stop()
+            coord.join(threads)
+        out_arr = np.array(out_arr, dtype='int32')
+        out_string = out_arr.tostring()
+
+        tf.gfile.FastGFile(pre_result_path, 'wb').write(out_string)
+
+
+if __name__ == '__main__':
+    train15_file = 'oss://remotecom/train15/train_file/train15.tfrecords'
+    model15 = 'oss://remotecom/train15/model/model15.ckpt'
+    test15_file = 'oss://remotecom/test_file15/test15.tfrecords'
+    pre_result_path = 'oss://remotecom/train15/pre_tif/precision001_noclass_weight.txt'
+    net = SegNet(150, 8, 0.001, 0.99, 0.99)
+    net.train(train15_file, model15)
+    #net.prediction(test15_file, model15, pre_result_path)
