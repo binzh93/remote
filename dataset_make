@@ -1,0 +1,92 @@
+import gdal
+import numpy as np
+
+
+def write_tiff(file_outpath, input_arr, out_width, out_height, out_band):
+    driver = gdal.GetDriverByName("GTiff")
+    dst_ds = driver.Create(file_outpath, out_width, out_height, out_band, gdal.GDT_UInt16)
+    if out_band == 1:
+        dst_ds.GetRasterBand(1).WriteArray(input_arr)
+    elif out_band > 1:
+        for i in range(out_band):
+            dst_ds.GetRasterBand(i + 1).WriteArray(input_arr[i])
+
+
+def split_img():
+    file_15 = '/home/zb/split_hhh/im17/'
+    file_15_out = '/home/zb/split_hhh/im_new17/'
+    file_15_label = '/home/zb/split_hhh/im17_label/'
+    file_15_label_out = '/home/zb/split_hhh/im_new17_label/'
+    nums = 0
+    for i in range(150):
+        filename = file_15 + str(i) + '.tif'
+        im = gdal.Open(filename)
+        filename_label = file_15_label + str(i) + '.tif'
+        im_label = gdal.Open(filename_label)
+
+        for j in range(2):
+            for k in range(2):
+                file_out = file_15_out + str(nums) + '.tif'
+                im_arr = im.ReadAsArray(xoff=16 + k*224, yoff=16 + j * 224, xsize=224, ysize=224)
+                write_tiff(file_out, im_arr, 224, 224, 4)
+
+                file_out_label = file_15_label_out + str(nums) + '.tif'
+                im_label_arr = im_label.ReadAsArray(xoff=16 + k * 224, yoff=16 + j * 224, xsize=224, ysize=224)
+                write_tiff(file_out_label, im_label_arr, 224, 224, 1)
+
+                nums += 1
+
+    for i in range(114):
+        filename = file_15 + str(i + 186) + '.tif'
+        im = gdal.Open(filename)
+        filename_label = file_15_label + str(i + 186) + '.tif'
+        im_label = gdal.Open(filename_label)
+
+        for j in range(2):
+            for k in range(2):
+                file_out = file_15_out + str(nums) + '.tif'
+                im_arr = im.ReadAsArray(xoff=16+k*224, yoff=16+j*224, xsize=224, ysize=224)
+                write_tiff(file_out, im_arr, 224, 224, 4)
+
+                file_out_label =file_15_label_out + str(nums) + '.tif'
+                im_label_arr = im_label.ReadAsArray(xoff=16+k*224, yoff=16+j*224, xsize=224, ysize=224)
+                write_tiff(file_out_label, im_label_arr, 224, 224, 1)
+                nums += 1
+
+def chanhge_label():
+    filename = '/home/zb/split_hhh/im_new17_label1/'
+    fileout = '/home/zb/split_hhh/im_new17_label/'
+    for i in range(1056):
+        file = filename + str(i) + '.tif'
+        im = gdal.Open(file)
+        im_arr = im.ReadAsArray()
+        ims = np.array(im_arr, dtype='float32')
+        ims = ims / 2 + 0.5
+        ims = np.array(ims, dtype='int32')
+        file2 = fileout + str(i) + '.tif'
+        write_tiff(file2, ims, 224, 224, 1)
+
+
+
+
+if __name__ == '__main__':
+    #chanhge_label()
+
+    
+
+    filename = '/home/zb/split_hhh/im_new17_label/'
+    val = 0
+    for i in range(1056):
+        file = filename + str(i) + '.tif'
+        im = gdal.Open(file)
+        im_arr = im.ReadAsArray()
+        ims = np.array(im_arr)
+        val += np.sum(ims)
+    print val
+
+    print val * 1.0 / (224*224*1056)
+    
+    #split_img()
+
+
+
