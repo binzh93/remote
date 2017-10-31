@@ -1,0 +1,56 @@
+# -*- coding: utf8 -*-
+import tensorflow as tf
+'''
+input1 = tf.constant([1.0, 2.0, 3.0], name='input1')
+input2 = tf.Variable(tf.random_uniform([3]), name='input2')
+output = tf.add_n([input1, input2], name='add')
+
+writer = tf.train.SummaryWriter('/home/zb/桌面/log', tf.get_default_graph())
+writer.close()
+'''
+
+
+
+def read_batch_img(file_img_path, batch_size):
+    files = tf.train.match_filenames_once(file_img_path + '*')
+    file_queue = tf.train.string_input_producer(files)
+    print type(file_queue)
+    reader = tf.WholeFileReader()
+    key, value = reader.read_up_to(file_queue)
+    record_bytes = tf.image.decode_jpeg(value, channels=3)
+    print type(record_bytes)
+    #record_bytes = tf.convert_to_tensor(tf.cast(record_bytes, dtype=tf.float32))
+
+    return files, record_bytes
+
+
+
+if __name__ == '__main__':
+    file_img_path = '/home/zb/zzz/tuu/2015/2015_0/'
+
+    files, img_batch = read_batch_img(file_img_path, 2)
+
+    with tf.Session() as sess:
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
+
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+        filenames = sess.run(files)
+        print 'your all files:', filenames
+
+        for i in range(2):
+            imgs = sess.run(img_batch)
+            #img_batchs = sess.run([img_batch])
+
+            print imgs
+
+
+        coord.request_stop()
+        coord.join(threads)
+
+
+
+
+
+
