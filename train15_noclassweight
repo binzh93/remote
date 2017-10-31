@@ -148,8 +148,8 @@ class SegNet():
             return ret
 
     def inference(self, images, isTraining, isTraining2):
-        # Local Response Normalization(灞€閮ㄥ搷搴斿綊涓€鍖�), 杩欓噷鍙傛暟浣嶇粡楠屽€硷紝璁烘枃涓帹鑽愮殑鍙傛暟
-        # 璇曚竴涓嬶紝鍚庢湡浣跨敤鍏ㄥ眬褰掍竴鍖栫殑鏂规硶
+        # Local Response Normalization(局部响应归一化), 这里参数位经验值，论文中推荐的参数
+        # 试一下，后期使用全局归一化的方法
         img_lrn = tf.nn.lrn(images, depth_radius=5, bias=1.0, alpha=0.0001, beta=0.75, name='img_lrn')
 
         # encode
