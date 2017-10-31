@@ -1,0 +1,285 @@
+# -*- coding: utf8 -*-
+import tensorflow as tf
+import numpy as np
+import gdal
+import time
+
+def write_tiff(file_outpath, input_arr, out_width, out_height, out_band):
+    driver = gdal.GetDriverByName("GTiff")
+    dst_ds = driver.Create(file_outpath, out_width, out_height, out_band, gdal.GDT_UInt16)
+    if out_band == 1:
+        dst_ds.GetRasterBand(1).WriteArray(input_arr)
+    elif out_band > 1:
+        for i in range(out_band):
+            dst_ds.GetRasterBand(i + 1).WriteArray(input_arr[i])
+
+
+
+
+def writeTiff(im_data, im_width, im_height, im_bands, path, im_geotrans=None, im_proj=None):
+    if 'int8' in im_data.dtype.name:
+        datatype = gdal.GDT_Byte
+    elif 'int16' in im_data.dtype.name:
+        datatype = gdal.GDT_UInt16
+    else:
+        datatype = gdal.GDT_Float32
+
+    if len(im_data.shape) == 3:
+        im_bands, im_height, im_width = im_data.shape
+    else:
+        im_bands, (im_height, im_width) = 1, im_data.shape
+        # 创建文件
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(path, im_width, im_height, im_bands, datatype)
+    if (dataset != None) & (im_geotrans != None) & (im_proj != None):
+        dataset.SetGeoTransform(im_geotrans)  # 写入仿射变换参数
+        dataset.SetProjection(im_proj)  # 写入投影
+    for i in range(im_bands):
+        # dataset.GetRasterBand(i+1).WriteArray(im_data[i])
+        dataset.GetRasterBand(i + 1).WriteArray(im_data)
+    del dataset
+
+
+def largen_label_provide(filein, fileout):
+    file_com = '/home/zb/tmp/tinysample.tif'
+    im_tiny = gdal.Open(file_com)
+
+    im = gdal.Open(filein)
+    im = im.ReadAsArray()
+
+    writeTiff(im, 15106, 5106, 1, fileout, [0, 12, 0, 0, 0, -12], im_tiny.GetProjection())
+
+
+def show_difference(file_label_trans_save):
+
+    im = gdal.Open(file_label_trans_save)
+    im = im.ReadAsArray()
+    s = np.sum(im)
+    print (s * 1.0 / (15106 * 5106)) * 100
+    # result   difference: 1.50351149565
+
+
+def split_img_224(filein, fileout_path, channels):
+    im = gdal.Open(filein)
+
+    nums = 0
+    for i in range(22):
+        for j in range(67):
+            tmp_arr = im.ReadAsArray(xoff=j * 224, yoff=i * 224, xsize=224, ysize=224)
+            filename = fileout_path + str(nums) + '.tif'
+            write_tiff(filename, tmp_arr, 224, 224, channels)
+            nums += 1
+
+
+
+def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+def _bytes_feature(value):
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+def _float_feature(value):
+    return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
+
+def img_to_tfredcords(file15, file17, label_path, fileout):
+    writer = tf.python_io.TFRecordWriter(fileout)
+    for i in range(1474):
+        file15_con = file15 + str(i) + '.tif'
+        file17_con = file17 + str(i) + '.tif'
+        label_con = label_path + str(i) + '.tif'
+
+        im15 = gdal.Open(file15_con)
+        im17 = gdal.Open(file17_con)
+        label_val = gdal.Open(label_con)
+
+        im15 = im15.ReadAsArray()
+        im17 = im17.ReadAsArray()
+        label_val = label_val.ReadAsArray()
+
+        im = np.concatenate((im15, im17), axis=0)     # 将2个4通道图像合并为8通道
+        im = np.transpose(im, [1, 2, 0])
+
+        im_arr = np.array(im, dtype='float32')
+        label_arr = np.array(label_val, dtype='int32')
+
+
+        img_raw = im_arr.tostring()
+        label = label_arr.tostring()
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'image_raw': _bytes_feature(img_raw),
+            'label': _bytes_feature(label)
+        }))
+        writer.write(example.SerializeToString())
+    writer.close()
+
+
+def write_newimg():
+    file15 = '/media/zb/ml/初赛第二阶段/quickbird2015_preliminary_2.tif'
+    file17 = '/media/zb/ml/初赛第二阶段/quickbird2017_preliminary_2.tif'
+
+    file15_split = '/media/zb/ml/remote_process/split_img/im15/'
+    file17_split = '/media/zb/ml/remote_process/split_img/im17/'
+    #file_label_split = '/media/zb/ml/remote_process/split_img/label/'
+
+    split_img_224(file15, file15_split, 4)
+    split_img_224(file17, file17_split, 4)
+
+
+
+    for i in range():
+        pass
+
+
+
+def adaptive_split_img(filein, split_img_path,split_size):
+    img = gdal.Open(filein)
+
+    # (4, 5106, 15106)
+    width = img.RasterXSize
+    height = img.RasterYSize
+
+    rows = height/split_size + 1 # hang
+    cols = width/split_size + 1 # lie
+
+    nums = 0
+    for i in range(rows):
+        for j in range(cols):
+            if (i == rows - 1) and (j != cols - 1):
+                yheight = height - split_size * i
+
+                arr = img.ReadAsArray(xoff=j * split_size, yoff=i * split_size, xsize=split_size, ysize=yheight)
+                zero_arr = np.zeros((4, split_size - yheight, split_size))
+                tmp_arr = np.concatenate((arr, zero_arr), axis=1)
+
+                filename = split_img_path + str(nums) + '.tif'
+                write_tiff(filename, tmp_arr, split_size, split_size, 4)
+                nums += 1
+
+            elif (j == cols - 1) and (i != rows - 1):
+                xwidth = width - split_size * j
+
+                arr = img.ReadAsArray(xoff=j * split_size, yoff=i * split_size, xsize=xwidth, ysize=split_size)
+                zero_arr = np.zeros((4, split_size, split_size - xwidth))
+                tmp_arr = np.concatenate((arr, zero_arr), axis=2)
+
+                filename = split_img_path + str(nums) + '.tif'
+                write_tiff(filename, tmp_arr, split_size, split_size, 4)
+                nums += 1
+
+            elif (i == rows - 1) and (j == cols - 1):
+                xwidth = width - split_size * j
+                yheight = height - split_size * i
+
+                zero_arr1 = np.zeros((4, yheight, split_size - xwidth))
+                zero_arr2 = np.zeros((4, split_size - yheight, split_size))
+                arr = img.ReadAsArray(xoff=j * split_size, yoff=i * split_size, xsize=xwidth, ysize=yheight)
+                arr1 = np.concatenate((arr, zero_arr1), axis=2)
+                tmp_arr = np.concatenate((arr1, zero_arr2), axis=1)
+
+                filename = split_img_path + str(nums) + '.tif'
+                write_tiff(filename, tmp_arr, split_size, split_size, 4)
+                nums += 1
+
+            else:
+                split_arr = img.ReadAsArray(xoff=j*split_size, yoff=i*split_size, xsize=split_size, ysize=split_size)
+                filename = split_img_path + str(nums) + '.tif'
+                write_tiff(filename, split_arr, split_size, split_size, 4)
+                nums += 1
+
+
+def write_to_tiff(file15, file17, fileout):
+
+    for j in range(2):
+        fileout_path = fileout + str(j) + '.tfrecords'
+        writer = tf.python_io.TFRecordWriter(fileout_path)
+        for i in range(1258):
+            file15_con = file15 + str(i + j*1258) + '.tif'
+            file17_con = file17 + str(i + j*1258) + '.tif'
+
+            im15 = gdal.Open(file15_con)
+            im17 = gdal.Open(file17_con)
+
+            im15 = im15.ReadAsArray()
+            im17 = im17.ReadAsArray()
+
+            im = np.concatenate((im15, im17), axis=0)  # 将2个4通道图像合并为8通道
+            im = np.transpose(im, [1, 2, 0])
+
+            im_arr = np.array(im, dtype='float32')
+
+            img_raw = im_arr.tostring()
+            example = tf.train.Example(features=tf.train.Features(feature={
+                'image_raw': _bytes_feature(img_raw),
+            }))
+            writer.write(example.SerializeToString())
+        writer.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+if __name__ == '__main__':
+
+    file_label_read = '/home/zb/桌面/new_project/provided_img/provided_sample.tif'
+    file_label_trans_save = '/home/zb/桌面/new_project/largen_label.tif'
+    # 将原图变为与4通道图一样大小
+    # largen_label_provide(file_label_read, file_label_trans_save)
+
+    # show_difference
+    #show_difference(file_label_trans_save)
+
+    file15 = '/home/zb/桌面/new_project/provided_img/quickbird2015.tif'
+    file17 = '/home/zb/桌面/new_project/provided_img/quickbird2017.tif'
+
+    fileout_path_15 = '/home/zb/桌面/new_project/split_img/img15/'
+    fileout_path_17 = '/home/zb/桌面/new_project/split_img/img17/'
+    fileout_path_label = '/home/zb/桌面/new_project/split_img/label/'
+    file_tfrecords_outpath = '/home/zb/桌面/new_project/train.tfrecords'
+
+    '''
+    split_img_224(file15, fileout_path_15, 4)
+    split_img_224(file17, fileout_path_17, 4)
+    split_img_224(file_label_trans_save, fileout_path_label, 1)
+    
+
+    print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+
+
+    img_to_tfredcords(fileout_path_15, fileout_path_17, fileout_path_label, file_tfrecords_outpath)
+    print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+    
+    '''
+    #write_newimg()
+
+    filein1 = '/media/zb/ml/初赛第二阶段/quickbird2015_preliminary_2.tif'
+    filein2 = '/media/zb/ml/初赛第二阶段/quickbird2017_preliminary_2.tif'
+    fileout1 = '/home/zb/new_img_split/im15/'
+    fileout2 = '/home/zb/new_img_split/im17/'
+
+    #adaptive_split_img(filein2, fileout2, 224)
+
+
+    file15_sss = '/home/zb/new_img_split/im15/'
+    file17_sss = '/home/zb/new_img_split/im17/'
+    fileout_path = '/home/zb/new_img_split/'
+
+    print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+
+    write_to_tiff(file15_sss, file17_sss, fileout_path)
+
+    print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+
+
