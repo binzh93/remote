@@ -1,0 +1,252 @@
+import numpy as np
+import gdal
+
+
+
+
+
+
+def write_tiff(file_outpath, input_arr, out_width, out_height, out_band):
+    driver = gdal.GetDriverByName("GTiff")
+    dst_ds = driver.Create(file_outpath, out_width, out_height, out_band, gdal.GDT_UInt16)
+    if out_band == 1:
+        dst_ds.GetRasterBand(1).WriteArray(input_arr)
+    elif out_band > 1:
+        for i in range(out_band):
+            dst_ds.GetRasterBand(i + 1).WriteArray(input_arr[i])
+
+
+def split_img_120(file_read, file_out):
+    im = gdal.Open(file_read)
+
+    nums = 0
+
+    for i in range(42):
+        for j in range(125):
+            tmp_arr = im.ReadAsArray(xoff=j*120, yoff=i*120, xsize=120, ysize=120)
+
+            # split image numbers must less than 100 0000
+            if nums < 10:
+                filename = file_out + '00000' + str(nums)
+            elif nums >= 10 & nums < 100:
+                filename = file_out + '0000' + str(nums)
+            elif nums >= 100 & nums < 1000:
+                filename = file_out + '000' + str(nums)
+            elif nums >= 1000 & nums < 10000:
+                filename = file_out + '00' + str(nums)
+            elif nums >= 10000 & nums < 100000:
+                filename = file_out + '0' + str(nums)
+            elif nums >= 100000:
+                filename = file_out + str(nums)
+
+            write_tiff(filename, tmp_arr, 120, 120, 4)
+            nums += 1
+
+
+
+
+    '''
+    band1 = im.GetRasterBand(1)
+    band2 = im.GetRasterBand(2)
+    band3 = im.GetRasterBand(3)
+    band4 = im.GetRasterBand(4)
+
+    band1_arr = band1.ReadAsArray()
+    band2_arr = band2.ReadAsArray()
+    band3_arr = band3.ReadAsArray()
+    band4_arr = band4.ReadAsArray()
+
+    '''
+def split_img():
+    filein = '/home/zb/tmp/1/quickbird2015.tif'
+    fileout_paht = '/media/zb/ml/15/'
+    im = gdal.Open(filein)
+    nums = 0
+    for i in range(5):
+        for j in range(15):
+            filename = fileout_paht + str(nums) + '.tif'
+            tmp_arr = im.ReadAsArray(xoff=j*960, yoff=i*960, xsize=960, ysize=960)
+            write_tiff(filename, tmp_arr, 960, 960, 4)
+            nums += 1
+
+
+
+
+def split17():
+    '''
+    file15_path = '/home/zb/im15/'
+    file15_label_path = '/home/zb/01_file/'
+    file_out = '/media/zb/ml/512/'
+    file_label_outpath = '/media/zb/ml/512label/'
+    '''
+    file15_path = '/media/zb/ml/17960/'
+    file15_label_path = '/home/zb/01_file/'
+    file_out = '/media/zb/ml/512/'
+    file_label_outpath = '/media/zb/ml/512label/'
+    nums = 0
+    for i in range(4):
+        filename = file15_path + str(i) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+    for i in range(4):
+        filename = file15_path + str(i+5) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+5) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+    for i in range(20):
+        filename = file15_path + str(i+10) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+10) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+    for i in range(15):
+        filename = file15_path + str(i + 30) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=80, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+30) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=80, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+    for i in range(30):
+        filename = file15_path + str(i+45) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+45) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+
+
+
+def split15():
+
+    file15_path = '/media/zb/ml/15/'
+    file15_label_path = '/home/zb/01_file/15/'
+    file_out = '/media/zb/ml/512/'
+    file_label_outpath = '/media/zb/ml/512label/'
+    '''
+    file15_path = '/media/zb/ml/17960/'
+    file15_label_path = '/home/zb/01_file/'
+    file_out = '/media/zb/ml/512/'
+    file_label_outpath = '/media/zb/ml/512label/'
+    '''
+    nums = 0
+    for i in range(14):
+        filename = file15_path + str(i) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+    for i in range(30):
+        filename = file15_path + str(i+15) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+15) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+
+    for i in range(13):
+        filename = file15_path + str(i+45) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=80, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+45) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=80, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+    for i in range(1):
+        filename = file15_path + str(i+59) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=80, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+59) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=80, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+
+    for i in range(15):
+        filename = file15_path + str(i+60) + '.tif'
+        file_out_path = file_out + str(nums) + '.tif'
+        im = gdal.Open(filename)
+        tmp_arr = im.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path, tmp_arr, 512, 512, 4)
+
+        filename2 = file15_label_path + str(i+60) + '.tif'
+        file_out_path2 = file_label_outpath + str(nums) + '.tif'
+        im2 = gdal.Open(filename2)
+        tmp_arr2 = im2.ReadAsArray(xoff=224, yoff=224, xsize=512, ysize=512)
+        write_tiff(file_out_path2, tmp_arr2, 512, 512, 1)
+        nums += 1
+
+
+
+
+
+
+
+if __name__ == '__main__':
+    split17()
+    #split_img()
+    #split17()
+    #split()
+    #split_img()
+    #input_path_im15 = '/home/zb/tmp/1/quickbird2015.tif'
+    #output_path_im15 = '/media/zb/ml/split_img/im15/im15_'
+
+    #split_img_120(input_path_im15, output_path_im15)
+
