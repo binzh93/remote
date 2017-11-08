@@ -3,7 +3,6 @@ import gdal
 import numpy as np
 
 
-
 def writeTiff(im_data, im_width, im_height, im_bands, path, im_geotrans=None, im_proj=None):
     if 'int8' in im_data.dtype.name:
         datatype = gdal.GDT_Byte
@@ -22,9 +21,12 @@ def writeTiff(im_data, im_width, im_height, im_bands, path, im_geotrans=None, im
     if (dataset != None) & (im_geotrans != None) & (im_proj != None):
         dataset.SetGeoTransform(im_geotrans)  # 写入仿射变换参数
         dataset.SetProjection(im_proj)  # 写入投影
-    for i in range(im_bands):
-        # dataset.GetRasterBand(i+1).WriteArray(im_data[i])
-        dataset.GetRasterBand(i + 1).WriteArray(im_data)
+    if im_bands == 1:
+        for i in range(im_bands):
+            dataset.GetRasterBand(i + 1).WriteArray(im_data)
+    else:
+        for i in range(im_bands):
+            dataset.GetRasterBand(i+1).WriteArray(im_data[i])
     del dataset
 
 
